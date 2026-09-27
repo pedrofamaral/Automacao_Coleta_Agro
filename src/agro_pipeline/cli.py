@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 from datetime import date
 
@@ -38,8 +39,30 @@ def _coletar(args: argparse.Namespace) -> None:
         if r.erro:
             print(f"{'':<20} erro: {r.erro.strip().splitlines()[-1]}")
 
+    _resumo_github(resultado, modo)
     if resultado.status != "sucesso":
         sys.exit(1)
+
+
+def _resumo_github(resultado, modo: str) -> None:
+    """No GitHub Actions, escreve a tabela da execução na página do run."""
+    caminho = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not caminho:
+        return
+    linhas = [
+        f"### Execução #{resultado.execucao_id} ({modo}): {resultado.status.upper()}",
+        "",
+        "| tarefa | status | método | janela | recebidas | rejeitadas | inseridas | revisadas | tempo |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for r in resultado.tarefas:
+        status = r.status if not r.erro else f"{r.status}: {r.erro.strip().splitlines()[-1]}"
+        linhas.append(
+            f"| {r.tarefa} | {status} | {r.metodo or '-'} | {r.inicio} → {r.fim} | {r.recebidas} "
+            f"| {r.rejeitadas} | {r.inseridas} | {r.revisadas} | {r.duracao_ms / 1000:.1f}s |"
+        )
+    with open(caminho, "a", encoding="utf-8") as f:
+        f.write("\n".join(linhas) + "\n")
 
 
 def main(argv: list[str] | None = None) -> None:
