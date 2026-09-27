@@ -12,6 +12,7 @@ from agro_pipeline.collectors import TAREFAS
 from agro_pipeline.collectors.base import FalhaBusca, Tarefa, com_retry
 from agro_pipeline.db import repositorio
 from agro_pipeline.db.conexao import engine as engine_padrao
+from agro_pipeline.quality.checks import Checagem, executar_checagens
 from agro_pipeline.validacao import validar
 
 
@@ -36,6 +37,8 @@ class ResultadoExecucao:
     execucao_id: int
     status: str
     tarefas: list[ResultadoTarefa]
+    checagens: list[Checagem] = field(default_factory=list)
+    erro_qualidade: str | None = None
 
 
 def janela(
@@ -131,4 +134,12 @@ def executar(
     with eng.begin() as conn:
         erro = "; ".join(f"{r.tarefa}: {r.erro.splitlines()[-1]}" for r in resultados if r.erro) or None
         repositorio.fechar_execucao(conn, execucao_id, status, erro)
-    return ResultadoExecucao(execucao_id, status, resultados)
+    resultado = ResultadoExecucao(execucao_id, status, resultados)
+
+    # a qualidade não pode derrubar a coleta que já foi gravada
+    try:
+        with eng.begin() as conn:
+            resultado.checagens = executar_checagens(conn, hoje, execucao_id)
+    except Exception:
+        resultado.erro_qualidade = traceback.format_exc(limit=3)
+    return resultado

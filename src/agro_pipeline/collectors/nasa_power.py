@@ -12,6 +12,10 @@ from agro_pipeline.collectors.base import Busca, Tarefa, iso, numero, quadro_can
 
 class TarefaNasaPower(Tarefa):
     fonte = "nasa_power"
+    # a NASA deixa buracos no meio da série (ex.: radiação nula num dia) e pode preenchê-los
+    # depois; reconsultar 30 dias (= janela recente da checagem de completude) faz o pipeline
+    # recuperar sozinho qualquer lacuna recente
+    sobreposicao_dias = 30
 
     def __init__(self, ponto: str):
         self.ponto = ponto

@@ -153,12 +153,82 @@ Divergências entre as duas fontes no mesmo dia viram checagem de qualidade.
   radiação tem atraso maior, até 22/09). Rejeitados como `nulo` e recuperados nas próximas
   execuções graças à sobreposição de 10 dias.
 
+## 2026-09-27 — Bloco 4 (automação) concluído
+**Implementação:** repositório https://github.com/pedrofamaral/Automacao_Coleta_Agro (público).
+- `.github/workflows/coleta-diaria.yml`: cron `0 22 * * *` (19h BRT) + disparo manual
+  (`run`/`backfill`); `concurrency` impede duas coletas simultâneas; roda `init-db` antes
+  (sincroniza catálogo) e depois o comando; `DATABASE_URL` vem do secret do repositório.
+- `.github/workflows/testes.yml`: pytest a cada push.
+- CLI escreve a tabela da execução no resumo do run (`GITHUB_STEP_SUMMARY`).
+
+**Resultado:** testes verdes no Actions; primeira coleta na nuvem (execução #3,
+`ambiente = github_actions`, versão `05a5e49`) com sucesso em 15 s. **O CEPEA respondeu a
+partir de IP de datacenter nos EUA** (risco de bloqueio pelo Cloudflare não se confirmou),
+porém levou 6,4 s contra 0,8 s localmente — convém registrar a fonte efetiva usada pelo agrobr
+(`return_meta=True` → `selected_source`) para saber se veio do CEPEA ou do espelho.
+Nada inserido (dados do dia já estavam no banco), como esperado.
+
+## 2026-09-27 — Painel Streamlit como ferramenta interna (após o bloco 5)
+**Decisão:** construir um painel Streamlit **local** de inspeção e análise exploratória
+(operação do pipeline, qualidade das séries, exploração para as features do ML), depois do
+bloco 5, com ~1 dia de esforço.
+**Enquadramento:** não é o "dashboard de visualização" cortado do escopo — é ferramenta de
+apoio às entregas de robustez, qualidade e validação. **Pendente: ok do orientador** (Pedro vai
+comentar com ele).
+**Motivo:** cronograma ~1 semana adiantado; gráficos servem de evidência no relatório.
+Publicação na web (Streamlit Cloud) só com um usuário de banco somente leitura.
+
+## 2026-09-27 — Bloco 5 (qualidade) concluído
+**Implementação** (`quality/checks.py`): regras que **não alteram dados**, só geram alertas em
+`checagem_qualidade`; rodam ao fim de toda execução e pelo comando `qualidade`. Parâmetros
+por série no catálogo (`defasagem_max`, `tipico_min/max`, `NAO_PUBLICA`).
+
+| Regra | Aplica a | Severidade | Reprova quando |
+|---|---|---|---|
+| completude | todas | aviso | falta dia esperado nos últimos 30 dias |
+| defasagem | todas | **erro** (CLI sai com 1) | dias sem dado > máximo (CEPEA 3 úteis, PTAX 2 úteis, NASA 7 corridos) |
+| saltos | preço, câmbio | aviso | z-score robusto do log-retorno > 6 nos últimos 30 dias |
+| valores_repetidos | preço, câmbio | aviso | ≥ 5 dias seguidos com o mesmo valor nos últimos 30 dias |
+| faixa_tipica | clima | aviso | mediana de 365 dias fora da faixa típica |
+| rejeicoes, revisoes | execução | info | — (contagens) |
+
+**Calibração com os dados reais:**
+- Calendário = feriados da B3 (`holidays.financial_holidays("BVMF")`, inclui carnaval e Corpus
+  Christi). PTAX bate 100% (0 faltantes, 0 extras em 5.709 dias). O CEPEA também não publica em
+  24/12 e 31/12 — com isso soja fica 99,84% completa (8 faltantes) e milho 99,73% (15).
+- Saltos: sem piso, o MAD zera em trechos parados e a soja dava 160 alarmes falsos. Com piso de
+  1%/dia e limite z = 6 restam 9 (soja), 3 (milho), 3 (PTAX) — eventos reais: crise de 10/2008,
+  "Joesley Day" 18/05/2017, seca nos EUA 07/2012. Por isso a regra alerta e não rejeita.
+
+**Achados de qualidade nas fontes (material para o relatório):**
+1. **Soja CEPEA congelada em R$:** 82 dias úteis seguidos em R$ 61,17 (29/09/2014 → 26/01/2015)
+   na planilha oficial, enquanto a coluna em US$ varia (79 valores distintos no período). 11,1%
+   dos dias da soja não têm variação (milho 1,8%, PTAX 0,5%). **Tratar no ML** (reconstruir
+   R$ = US$ × PTAX ou excluir o trecho).
+2. **Vento NASA em Sorriso/MT:** mediana anual 0,08 m/s (Rio Verde 1,78; Cascavel 0,73) —
+   só esse ponto é suspeito.
+3. **Radiação NASA 07/09/2026 nula** nos 3 pontos, ainda nula na fonte.
+
+**Correção de desenho encontrada pela checagem:** a janela incremental (última data − 10 dias)
+nunca revisitaria um buraco no meio da série. NASA passou a reconsultar 30 dias (= janela
+recente da completude): lacuna recente sinalizada é recuperada sozinha quando a fonte publicar.
+
+**Proveniência do CEPEA:** `coleta.parametros.proveniencia` guarda `selected_source`,
+`attempted_sources`, `from_cache` do agrobr. Localmente veio do **cache DuckDB do agrobr**;
+no Actions (sem cache) mostrará a fonte real.
+
+**Testes:** 23 unitários (7 novos de qualidade, com séries sintéticas contendo cada problema).
+
 ---
 
 ## Questões em aberto
 
 - [x] ~~Profundidade do histórico do CEPEA via agrobr~~ — 15 dias; resolvido com a planilha.
 - [x] ~~Praça de cada indicador~~ — soja Paranaguá/PR, milho Campinas/SP.
+- [x] ~~Registrar a fonte efetiva do agrobr~~ — feito no bloco 5 (`proveniencia`).
+- [ ] Tratamento do trecho congelado da soja (2014-09-29 → 2015-01-26) no experimento de ML.
+- [ ] Vento de Sorriso/MT: excluir das features ou justificar.
+- [ ] Ok do orientador para o painel Streamlit como ferramenta interna.
 - [ ] Série de PTAX: usar `cotacao_venda` como principal (padrão de mercado) — confirmar.
 - [ ] **Licenças** — CEPEA é CC BY-NC 4.0 (ok para uso acadêmico, exige atribuição);
       documentar a licença de cada fonte no README.

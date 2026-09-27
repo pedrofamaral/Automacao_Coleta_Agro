@@ -31,6 +31,16 @@ class Serie:
     limite_min: float | None = None
     limite_max: float | None = None
     descricao: str | None = None
+    # parâmetros das checagens de qualidade (quality/checks.py)
+    defasagem_max: int = 3  # dias sem dado novo tolerados, na unidade do calendário
+    tipico_min: float | None = None  # faixa típica da mediana dos últimos 365 dias
+    tipico_max: float | None = None
+
+
+# dias úteis em que a fonte não publica, além dos feriados da B3 (mês, dia)
+NAO_PUBLICA: dict[str, list[tuple[int, int]]] = {
+    "cepea": [(12, 24), (12, 31)],
+}
 
 
 FONTES: list[Fonte] = [
@@ -94,6 +104,7 @@ SERIES_CAMBIO: list[Serie] = [
         unidade="BRL/USD",
         calendario="dias_uteis",
         limite_min=0,
+        defasagem_max=2,  # publicada por volta das 13h
         descricao=f"Dólar PTAX, cotação de {lado}",
     )
     for lado in ("venda", "compra")
@@ -108,15 +119,17 @@ PONTOS_CLIMA: dict[str, tuple[str, float, float]] = {
     "cascavel_pr": ("Cascavel/PR", -24.96, -53.46),
 }
 
-# variável do agrobr -> (unidade, limite_min, limite_max, descrição)
-VARIAVEIS_CLIMA: dict[str, tuple[str, float, float, str]] = {
-    "temp_media": ("°C", -10, 50, "Temperatura média a 2 m (T2M)"),
-    "temp_max": ("°C", -10, 50, "Temperatura máxima a 2 m (T2M_MAX)"),
-    "temp_min": ("°C", -15, 45, "Temperatura mínima a 2 m (T2M_MIN)"),
-    "precip_mm": ("mm/dia", 0, 500, "Precipitação corrigida (PRECTOTCORR)"),
-    "umidade_rel": ("%", 0, 100, "Umidade relativa a 2 m (RH2M)"),
-    "radiacao_mj": ("MJ/m²/dia", 0, 45, "Radiação solar na superfície (ALLSKY_SFC_SW_DWN)"),
-    "vento_ms": ("m/s", 0, 40, "Velocidade do vento a 2 m (WS2M)"),
+# variável do agrobr -> (unidade, limite físico (mín, máx), faixa típica da mediana anual
+# (mín, máx) ou None, descrição). O limite físico rejeita o dado na entrada; a faixa típica só
+# gera alerta de qualidade.
+VARIAVEIS_CLIMA: dict[str, tuple[str, tuple[float, float], tuple[float, float] | None, str]] = {
+    "temp_media": ("°C", (-10, 50), (10, 35), "Temperatura média a 2 m (T2M)"),
+    "temp_max": ("°C", (-10, 50), (15, 42), "Temperatura máxima a 2 m (T2M_MAX)"),
+    "temp_min": ("°C", (-15, 45), (0, 30), "Temperatura mínima a 2 m (T2M_MIN)"),
+    "precip_mm": ("mm/dia", (0, 500), None, "Precipitação corrigida (PRECTOTCORR)"),
+    "umidade_rel": ("%", (0, 100), (30, 95), "Umidade relativa a 2 m (RH2M)"),
+    "radiacao_mj": ("MJ/m²/dia", (0, 45), (8, 30), "Radiação solar na superfície (ALLSKY_SFC_SW_DWN)"),
+    "vento_ms": ("m/s", (0, 40), (0.5, 10), "Velocidade do vento a 2 m (WS2M)"),
 }
 
 SERIES_CLIMA: list[Serie] = [
@@ -130,12 +143,15 @@ SERIES_CLIMA: list[Serie] = [
         lon=lon,
         unidade=unidade,
         calendario="dias_corridos",
-        limite_min=vmin,
-        limite_max=vmax,
+        limite_min=limite[0],
+        limite_max=limite[1],
         descricao=descricao,
+        defasagem_max=7,  # a NASA publica com 2 a 5 dias de atraso
+        tipico_min=tipico[0] if tipico else None,
+        tipico_max=tipico[1] if tipico else None,
     )
     for ponto, (local, lat, lon) in PONTOS_CLIMA.items()
-    for variavel, (unidade, vmin, vmax, descricao) in VARIAVEIS_CLIMA.items()
+    for variavel, (unidade, limite, tipico, descricao) in VARIAVEIS_CLIMA.items()
 ]
 
 SERIES: list[Serie] = SERIES_PRECO + SERIES_CAMBIO + SERIES_CLIMA

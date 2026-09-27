@@ -50,7 +50,9 @@ class TarefaCepea(Tarefa):
     def _buscar_agrobr(self, inicio: date, fim: date) -> Busca:
         from agrobr.sync import cepea
 
-        df = cepea.indicador(self.produto, inicio=inicio.isoformat(), fim=fim.isoformat())
+        df, meta = cepea.indicador(
+            self.produto, inicio=inicio.isoformat(), fim=fim.isoformat(), return_meta=True
+        )
         if df.empty:
             raise ValueError("agrobr retornou 0 linhas para uma janela de dias úteis")
         registros = [
@@ -71,6 +73,15 @@ class TarefaCepea(Tarefa):
                 "inicio": inicio.isoformat(),
                 "fim": fim.isoformat(),
                 "agrobr": version("agrobr"),
+                # de onde o agrobr tirou o dado: site do CEPEA, espelho Notícias Agrícolas ou
+                # o cache local dele (DuckDB)
+                "proveniencia": {
+                    "selected_source": str(meta.selected_source),
+                    "attempted_sources": [str(s) for s in meta.attempted_sources],
+                    "source_url": meta.source_url,
+                    "from_cache": meta.from_cache,
+                    "raw_content_hash": meta.raw_content_hash,
+                },
             },
             registros=registros,
         )
