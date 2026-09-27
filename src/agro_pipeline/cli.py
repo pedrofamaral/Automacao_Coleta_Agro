@@ -65,30 +65,10 @@ def _tem_erro(checagens) -> bool:
     return any(c.severidade == "erro" and not c.aprovada for c in checagens)
 
 
-def _resumir_detalhe(c) -> str:
-    d = c.detalhe
-    match c.regra:
-        case "completude" if "completude" in d:
-            txt = f"{d['completude']:.2%} completa, {d['faltantes']} faltantes"
-            return txt + (f"; recentes: {d['faltantes_recentes']}" if d["faltantes_recentes"] else "")
-        case "defasagem":
-            return f"{d['dias_sem_dado']} dias sem dado (máx. {d['maximo']}), último {d['ultima_data']}"
-        case "saltos":
-            return f"{d['total_historico']} no histórico; recentes: {[(s['data'], s['variacao_pct']) for s in d['recentes']]}"
-        case "valores_repetidos":
-            m = d["maior_sequencia"]
-            return f"{d['pct_dias_sem_variacao']:.1%} dias sem variação; maior sequência {m['dias']} dias ({m['inicio']} → {m['fim']})"
-        case "faixa_tipica":
-            dentro = "dentro da" if c.aprovada else "FORA da"
-            return f"mediana 365d = {d['mediana_365d']} ({dentro} faixa típica {d['faixa']})"
-        case "rejeicoes":
-            return f"{d['total']} linhas rejeitadas {d['por_motivo']}"
-        case "revisoes":
-            return f"{d['total']} valores revisados pela fonte {d['por_serie']}"
-    return str(d)
-
-
 def _linhas_qualidade(checagens, todas: bool = False) -> list[str]:
+    from agro_pipeline.quality.checks import resumir
+
+
     reprovadas = [c for c in checagens if not c.aprovada]
     linhas = [
         f"qualidade: {len(checagens)} checagens, {len(checagens) - len(reprovadas)} aprovadas, "
@@ -97,7 +77,7 @@ def _linhas_qualidade(checagens, todas: bool = False) -> list[str]:
     ]
     for c in checagens if todas else reprovadas + [c for c in checagens if c.serie is None]:
         marca = "ok " if c.aprovada else c.severidade.upper()
-        linhas.append(f"  [{marca:<5}] {(c.serie or 'execução'):<30} {c.regra:<18} {_resumir_detalhe(c)}")
+        linhas.append(f"  [{marca:<5}] {(c.serie or 'execução'):<30} {c.regra:<18} {resumir(c)}")
     return linhas
 
 

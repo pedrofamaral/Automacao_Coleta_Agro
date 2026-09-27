@@ -219,6 +219,26 @@ no Actions (sem cache) mostrará a fonte real.
 
 **Testes:** 23 unitários (7 novos de qualidade, com séries sintéticas contendo cada problema).
 
+## 2026-09-27 — Painel Streamlit (ferramenta interna) construído
+**Implementação** (`painel/`, rodar com `streamlit run painel/app.py`): 3 páginas —
+Operação (execuções, taxa de sucesso, coletas por execução com origem/proveniência),
+Qualidade (último lote de checagens, completude por série, inspetor que destaca no gráfico
+trechos repetidos, saltos e dias faltantes — reutilizando as funções de `quality/checks.py`)
+e Exploração (preços, índice base 100, sazonalidade, correlação mensal preço × chuva, chuva
+por região, download do dataset do período). Consultas com cache de 5 min.
+**Visualização:** paleta de referência da skill de dataviz; cor fixa por entidade (soja azul,
+milho laranja, dólar verde-água, soja em US$ amarelo; pontos de clima magenta/verde/violeta,
+validados à parte em claro e escuro); sem eixo duplo (índice base 100 no lugar); cores de
+status sempre com ícone; tabela equivalente para cada gráfico.
+**Primeiros insights (período padrão, últimos ~10 anos):**
+- Sazonalidade: soja mais barata em **fevereiro** (colheita) e mais cara em novembro; milho mais
+  barato em **julho** (colheita da safrinha) e mais caro em março.
+- Correlação das variações mensais: soja × milho r = +0,41; **soja × dólar r = +0,37** —
+  o câmbio é candidato forte a feature. Anomalia de chuva tem correlação baixa com preço no
+  mesmo mês (esperado: efeito defasado e global) — testar lags no bloco 7.
+**Teste:** smoke test das 3 páginas e do `app.py` com `streamlit.testing.v1.AppTest`, sem
+exceções. Falta o teste visual pelo Pedro.
+
 ---
 
 ## Questões em aberto

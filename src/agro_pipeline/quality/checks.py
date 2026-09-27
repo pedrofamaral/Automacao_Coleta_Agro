@@ -117,8 +117,11 @@ def checar_defasagem(serie: Serie, ultima: date, hoje: date) -> Checagem:
     )
 
 
-def checar_saltos(serie: Serie, df: pd.DataFrame) -> Checagem:
-    """Log-retorno diário comparado à mediana/MAD das 60 observações anteriores."""
+def calcular_saltos(df: pd.DataFrame) -> pd.DataFrame:
+    """Dias com salto: log-retorno comparado à mediana/MAD das 60 observações anteriores.
+
+    df ordenado por data, colunas data e valor. Devolve as linhas com salto + retorno e z.
+    """
     ret = np.log(df["valor"]).diff()
     # shift(1): a referência de cada dia usa só os dias anteriores a ele
     mediana = ret.rolling(SALTO_JANELA, min_periods=20).median().shift(1)
@@ -126,7 +129,20 @@ def checar_saltos(serie: Serie, df: pd.DataFrame) -> Checagem:
         (ret - mediana).abs().rolling(SALTO_JANELA, min_periods=20).median().shift(1) * 1.4826
     ).clip(lower=SALTO_PISO_VOL)
     z = (ret - mediana) / desvio
-    saltos = df.assign(retorno=ret, z=z)[z.abs() > SALTO_LIMITE_Z]
+    return df.assign(retorno=ret, z=z)[z.abs() > SALTO_LIMITE_Z]
+
+
+def sequencias_repetidas(df: pd.DataFrame, minimo: int = 1) -> pd.DataFrame:
+    """Sequências de dias seguidos com o mesmo valor (colunas inicio, fim, n, valor)."""
+    grupo = (df["valor"].diff() != 0).cumsum()
+    seqs = df.groupby(grupo).agg(
+        inicio=("data", "first"), fim=("data", "last"), n=("valor", "size"), valor=("valor", "first")
+    )
+    return seqs[seqs["n"] >= minimo].reset_index(drop=True)
+
+
+def checar_saltos(serie: Serie, df: pd.DataFrame) -> Checagem:
+    saltos = calcular_saltos(df)
     limite_recente = df["data"].iloc[-1] - timedelta(days=JANELA_RECENTE)
     recentes = saltos[saltos["data"] > limite_recente]
 
@@ -152,8 +168,7 @@ def checar_saltos(serie: Serie, df: pd.DataFrame) -> Checagem:
 
 def checar_repetidos(serie: Serie, df: pd.DataFrame) -> Checagem:
     """Maior sequência de dias seguidos com exatamente o mesmo valor."""
-    grupo = (df["valor"].diff() != 0).cumsum()
-    seqs = df.groupby(grupo).agg(inicio=("data", "first"), fim=("data", "last"), n=("valor", "size"), valor=("valor", "first"))
+    seqs = sequencias_repetidas(df)
     maior = seqs.loc[seqs["n"].idxmax()]
     limite_recente = df["data"].iloc[-1] - timedelta(days=JANELA_RECENTE)
     recentes = seqs[(seqs["fim"] > limite_recente) & (seqs["n"] >= REPETIDOS_LIMITE)]
@@ -199,6 +214,30 @@ def checar_serie(serie: Serie, df: pd.DataFrame, hoje: date) -> list[Checagem]:
     if serie.tipico_min is not None and serie.tipico_max is not None:
         checagens.append(checar_faixa_tipica(serie, df))
     return checagens
+
+
+def resumir(c: Checagem) -> str:
+    """Uma linha legível com o essencial do detalhe da checagem (CLI e painel)."""
+    d = c.detalhe
+    match c.regra:
+        case "completude" if "completude" in d:
+            txt = f"{d['completude']:.2%} completa, {d['faltantes']} faltantes"
+            return txt + (f"; recentes: {d['faltantes_recentes']}" if d["faltantes_recentes"] else "")
+        case "defasagem":
+            return f"{d['dias_sem_dado']} dias sem dado (máx. {d['maximo']}), último {d['ultima_data']}"
+        case "saltos":
+            return f"{d['total_historico']} no histórico; recentes: {[(s['data'], s['variacao_pct']) for s in d['recentes']]}"
+        case "valores_repetidos":
+            m = d["maior_sequencia"]
+            return f"{d['pct_dias_sem_variacao']:.1%} dias sem variação; maior sequência {m['dias']} dias ({m['inicio']} → {m['fim']})"
+        case "faixa_tipica":
+            dentro = "dentro da" if c.aprovada else "FORA da"
+            return f"mediana 365d = {d['mediana_365d']} ({dentro} faixa típica {d['faixa']})"
+        case "rejeicoes":
+            return f"{d['total']} linhas rejeitadas {d['por_motivo']}"
+        case "revisoes":
+            return f"{d['total']} valores revisados pela fonte {d['por_serie']}"
+    return str(d)
 
 
 # Regras por execução ---------------------------------------------------------
